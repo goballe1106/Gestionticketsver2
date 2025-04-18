@@ -270,7 +270,11 @@ export function TicketForm() {
                     <FormControl>
                       <Input
                         placeholder="Su departamento"
-                        {...field}
+                        value={field.value || ''}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                       />
                     </FormControl>
                     <FormMessage />

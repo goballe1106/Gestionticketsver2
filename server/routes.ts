@@ -4,10 +4,12 @@ import { storage } from "./storage";
 import { setupAuth, checkRole } from "./auth";
 import { teamsService } from "./teams";
 import { insertTicketSchema, insertTicketCommentSchema, tickets } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 import { db } from "./db";
+import { promisify } from "util";
+import { scrypt, randomBytes } from "crypto";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication routes (/api/login, /api/register, /api/logout, /api/user)
@@ -295,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (req.body.assigneeId && req.body.assigneeId !== ticket.assigneeId) {
         activityType = "assigned";
         const assignee = await storage.getUser(req.body.assigneeId);
-        description = `Asignado a ${assignee?.name || "Usuario"}`;
+        description = `Asignado a ${assignee?.fullName || "Usuario"}`;
       }
       
       await storage.createTicketActivity({
@@ -346,7 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ticketId,
         userId: req.user.id,
         activityType: "comment_added",
-        description: `Comentario añadido por ${req.user.name}`
+        description: `Comentario añadido por ${req.user.fullName}`
       });
       
       // Try to send message to Teams chat (if integration enabled)

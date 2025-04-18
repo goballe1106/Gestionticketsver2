@@ -113,9 +113,9 @@ export default function UserManagementPage() {
     ? users.filter((user: any) => {
         const searchLower = searchQuery.toLowerCase();
         return (
-          user.name.toLowerCase().includes(searchLower) ||
-          user.username.toLowerCase().includes(searchLower) ||
-          user.email.toLowerCase().includes(searchLower) ||
+          (user.fullName && user.fullName.toLowerCase().includes(searchLower)) ||
+          (user.username && user.username.toLowerCase().includes(searchLower)) ||
+          (user.email && user.email.toLowerCase().includes(searchLower)) ||
           (user.department && user.department.toLowerCase().includes(searchLower))
         );
       })
@@ -226,11 +226,11 @@ export default function UserManagementPage() {
                           <div className="flex items-center">
                             <Avatar className="h-8 w-8 mr-3">
                               <AvatarFallback className="bg-[#0078d4] text-white">
-                                {user.name.charAt(0)}
+                                {user.fullName?.charAt(0) || "U"}
                               </AvatarFallback>
                             </Avatar>
                             <div>
-                              <div className="font-medium">{user.name}</div>
+                              <div className="font-medium">{user.fullName}</div>
                               <div className="text-sm text-gray-500">@{user.username}</div>
                             </div>
                           </div>
@@ -308,10 +308,10 @@ function EditUserForm({ user, onSubmit, isPending }: EditUserFormProps) {
   const form = useForm<EditUserFormValues>({
     resolver: zodResolver(editUserSchema),
     defaultValues: {
-      name: user.name,
-      email: user.email,
+      name: user.fullName || "",
+      email: user.email || "",
       department: user.department || "",
-      role: user.role,
+      role: user.role || "user",
       password: "",
     },
   });
