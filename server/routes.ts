@@ -357,7 +357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await teamsService.sendMessageToTeamsChat(
             ticket.teamsChannelId,
             commentData.content,
-            req.user.name
+            req.user.fullName
           );
         }
       } catch (teamsError) {
