@@ -292,19 +292,7 @@ function RegisterForm() {
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name="role"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Rol</FormLabel>
-                <FormControl>
-                  <Input placeholder="Rol (user, agent, admin)" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* El rol se asigna automáticamente como "user" */}
         </div>
         <FormField
           control={form.control}

@@ -171,10 +171,16 @@ export const ticketCommentsRelations = relations(ticketComments, ({ one }) => ({
 
 // Insert schemas for users and tickets
 export const insertUserSchema = createInsertSchema(users)
-  .omit({ id: true })
+  .omit({ id: true, role: true })
   .extend({
-    password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
-    confirmPassword: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+    password: z.string()
+      .min(8, "La contraseña debe tener al menos 8 caracteres")
+      .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
+      .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
+      .regex(/[0-9]/, "La contraseña debe contener al menos un número")
+      .regex(/[^A-Za-z0-9]/, "La contraseña debe contener al menos un carácter especial"),
+    confirmPassword: z.string(),
+    email: z.string().email("El correo electrónico no es válido"),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Las contraseñas no coinciden",

@@ -74,7 +74,37 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/register", async (req, res, next) => {
+  // Rate limiting para prevenir ataques de fuerza bruta
+const rateLimit = {
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5 // límite de 5 intentos por ventana
+};
+
+const attempts = new Map();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const windowStart = now - rateLimit.windowMs;
+  
+  if (!attempts.has(ip)) {
+    attempts.set(ip, [now]);
+    return true;
+  }
+
+  const userAttempts = attempts.get(ip).filter(time => time > windowStart);
+  attempts.set(ip, [...userAttempts, now]);
+  
+  return userAttempts.length < rateLimit.max;
+}
+
+app.post("/api/register", async (req, res, next) => {
+  const clientIP = req.ip;
+  
+  if (!checkRateLimit(clientIP)) {
+    return res.status(429).json({ 
+      message: "Demasiados intentos. Por favor, intente nuevamente más tarde." 
+    });
+  }
     try {
       // Validate input with Zod schema
       const userData = insertUserSchema.parse(req.body);
@@ -92,6 +122,7 @@ export function setupAuth(app: Express) {
       const user = await storage.createUser({
         ...userWithoutConfirm,
         password: hashedPassword,
+        role: "user", // Forzar rol de usuario
       });
 
       // Convert to safe user (without password)
