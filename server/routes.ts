@@ -1,9 +1,9 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, checkRole } from "./auth";
 import { teamsService } from "./teams";
-import { insertTicketSchema, insertTicketCommentSchema, tickets } from "@shared/schema";
+import { insertTicketSchema, insertTicketCommentSchema, tickets, User } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -68,7 +68,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           map[user.id] = safeUser;
         }
         return map;
-      }, {} as Record<number, Omit<typeof user, "password">>);
+      }, {} as Record<number, any>);
       
       // Attach user info to tickets
       const ticketsWithUsers = ticketList.map(ticket => ({
@@ -134,7 +134,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           map[user.id] = safeUser;
         }
         return map;
-      }, {} as Record<number, Omit<typeof user, "password">>);
+      }, {} as Record<number, any>);
       
       // Add user info to comments
       const commentsWithUsers = comments.map(comment => ({
@@ -158,9 +158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       // Remove sensitive information from users
-      const { password: _, ...safeCreator } = creator || {};
-      const safeAssignee = assignee ? { password: _, ...assignee } : null;
-      const safeResolvedBy = resolvedBy ? { password: _, ...resolvedBy } : null;
+      const { password: _creatorPass, ...safeCreator } = creator || {};
+      const safeAssignee = assignee ? (({ password: _, ...rest }) => rest)(assignee) : null;
+      const safeResolvedBy = resolvedBy ? (({ password: _, ...rest }) => rest)(resolvedBy) : null;
       
       res.json({
         ticket,
