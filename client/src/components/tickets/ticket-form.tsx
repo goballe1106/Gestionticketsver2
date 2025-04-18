@@ -65,7 +65,7 @@ export function TicketForm() {
       description: "",
       priority: "medium",
       status: "open",
-      department: user?.department || "",
+      department: "",
       creatorId: user?.id,
     },
   });

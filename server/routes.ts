@@ -181,9 +181,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     try {
+      // Si se proporciona un tipo de ticket, asegúrese de que la prioridad sea la correcta
+      let ticketDataWithDefaults = { ...req.body };
+      
+      // Importar las utilidades de tickets
+      if (ticketDataWithDefaults.type) {
+        const { getTicketPriorityFromType, getSLAHoursFromType, getTicketTypeText } = require('./ticket-utils');
+        
+        // Establecer prioridad automáticamente según el tipo (si no se ha establecido explícitamente)
+        if (!ticketDataWithDefaults.priority) {
+          ticketDataWithDefaults.priority = getTicketPriorityFromType(ticketDataWithDefaults.type);
+        }
+        
+        // Establecer SLA automáticamente según el tipo (si no se ha establecido explícitamente)
+        if (!ticketDataWithDefaults.slaHours) {
+          ticketDataWithDefaults.slaHours = getSLAHoursFromType(ticketDataWithDefaults.type);
+        }
+        
+        // Si no se ha proporcionado un título, usar el texto descriptivo del tipo
+        if (!ticketDataWithDefaults.title || ticketDataWithDefaults.title.trim() === '') {
+          ticketDataWithDefaults.title = getTicketTypeText(ticketDataWithDefaults.type);
+        }
+      }
+      
       // Validate ticket data
       const ticketData = insertTicketSchema.parse({
-        ...req.body,
+        ...ticketDataWithDefaults,
         creatorId: req.user.id
       });
       
