@@ -3,90 +3,93 @@ import {
   useQuery,
   useMutation,
 } from "@tanstack/react-query";
-import { userRegisterSchema, User, InsertUser, LoginData } from "@shared/schema";
+import { insertUserSchema, loginSchema, type User, type InsertUser, type LoginCredentials } from "@shared/schema";
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
+type UserWithoutPassword = Omit<User, "password">;
+
 type AuthContextType = {
-  user: User | null;
+  user: UserWithoutPassword | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: ReturnType<typeof useMutation<User, Error, LoginData>>;
-  logoutMutation: ReturnType<typeof useMutation<void, Error, void>>;
-  registerMutation: ReturnType<typeof useMutation<User, Error, InsertUser>>;
+  loginMutation: ReturnType<typeof useLoginMutation>;
+  logoutMutation: ReturnType<typeof useLogoutMutation>;
+  registerMutation: ReturnType<typeof useRegisterMutation>;
 };
 
-export const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+function useLoginMutation() {
   const { toast } = useToast();
-  const [, navigate] = useLocation();
-  
-  const {
-    data: user,
-    error,
-    isLoading,
-  } = useQuery<User | null, Error>({
-    queryKey: ["/api/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
-  });
+  const [, setLocation] = useLocation();
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
+  return useMutation({
+    mutationFn: async (credentials: LoginCredentials) => {
       const res = await apiRequest("POST", "/api/login", credentials);
       return await res.json();
     },
-    onSuccess: (user: User) => {
+    onSuccess: (user: UserWithoutPassword) => {
       queryClient.setQueryData(["/api/user"], user);
-      navigate("/");
       toast({
         title: "Inicio de sesión exitoso",
-        description: `Bienvenido, ${user.fullName}`,
+        description: `Bienvenido, ${user.name}!`,
       });
+      setLocation("/");
     },
     onError: (error: Error) => {
       toast({
         title: "Error de inicio de sesión",
-        description: error.message || "Credenciales inválidas",
+        description: error.message,
         variant: "destructive",
       });
     },
   });
+}
 
-  const registerMutation = useMutation({
+function useRegisterMutation() {
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  return useMutation({
     mutationFn: async (userData: InsertUser) => {
       const res = await apiRequest("POST", "/api/register", userData);
       return await res.json();
     },
-    onSuccess: (user: User) => {
+    onSuccess: (user: UserWithoutPassword) => {
       queryClient.setQueryData(["/api/user"], user);
-      navigate("/");
       toast({
         title: "Registro exitoso",
-        description: `Bienvenido, ${user.fullName}`,
+        description: `Bienvenido, ${user.name}!`,
       });
+      setLocation("/");
     },
     onError: (error: Error) => {
       toast({
-        title: "Error en el registro",
-        description: error.message || "No se pudo crear la cuenta",
+        title: "Error de registro",
+        description: error.message,
         variant: "destructive",
       });
     },
   });
+}
 
-  const logoutMutation = useMutation({
+function useLogoutMutation() {
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  return useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/logout");
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
-      navigate("/auth");
       toast({
         title: "Sesión cerrada",
-        description: "Has cerrado sesión correctamente",
+        description: "Has cerrado sesión correctamente.",
       });
+      setLocation("/auth");
     },
     onError: (error: Error) => {
       toast({
@@ -96,6 +99,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
   });
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const {
+    data: user,
+    error,
+    isLoading,
+  } = useQuery<UserWithoutPassword | null, Error>({
+    queryKey: ["/api/user"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
+  const loginMutation = useLoginMutation();
+  const registerMutation = useRegisterMutation();
+  const logoutMutation = useLogoutMutation();
 
   return (
     <AuthContext.Provider

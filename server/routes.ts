@@ -1,365 +1,508 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth } from "./auth";
-import { setupTeamsRoutes, isAuthenticated, isAdmin, isAgentOrAdmin, canAccessTicket } from "./teams";
-import { z } from "zod";
-import { insertTicketSchema, insertTicketCommentSchema } from "@shared/schema";
+import { setupAuth, checkRole } from "./auth";
+import { teamsService } from "./teams";
+import { insertTicketSchema, insertTicketCommentSchema, tickets } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { ZodError } from "zod";
+import { fromZodError } from "zod-validation-error";
+import { db } from "./db";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Setup authentication routes
+  // Setup authentication routes (/api/login, /api/register, /api/logout, /api/user)
   setupAuth(app);
   
-  // Setup Teams integration routes
-  setupTeamsRoutes(app);
-
-  // Users routes
-  app.get("/api/users", isAdmin, async (req, res) => {
+  const httpServer = createServer(app);
+  
+  // Ticket endpoints
+  
+  // Get all tickets (with filtering options)
+  app.get("/api/tickets", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
+    }
+    
     try {
-      const users = await storage.getUsers();
-      // Filter out passwords before sending
-      const safeUsers = users.map(({ password, ...user }) => user);
-      res.json(safeUsers);
+      const { status, limit = 50, offset = 0, assigneeId, creatorId } = req.query;
+      let ticketList;
+      
+      // Apply different filters based on query parameters
+      if (status) {
+        ticketList = await storage.getTicketsByStatus(status as string, Number(limit), Number(offset));
+      } else if (assigneeId) {
+        ticketList = await storage.getTicketsByAssignee(Number(assigneeId), Number(limit), Number(offset));
+      } else if (creatorId) {
+        ticketList = await storage.getTicketsByCreator(Number(creatorId), Number(limit), Number(offset));
+      } else if (req.query.unassigned === "true") {
+        ticketList = await storage.getUnassignedTickets(Number(limit), Number(offset));
+      } else {
+        // User role determines which tickets they can see
+        if (req.user.role === "admin" || req.user.role === "agent") {
+          ticketList = await storage.getAllTickets(Number(limit), Number(offset));
+        } else {
+          // Regular users can only see their own tickets
+          ticketList = await storage.getTicketsByCreator(req.user.id, Number(limit), Number(offset));
+        }
+      }
+      
+      // Get user info for creators and assignees
+      const userIds = new Set<number>();
+      ticketList.forEach(ticket => {
+        userIds.add(ticket.creatorId);
+        if (ticket.assigneeId) userIds.add(ticket.assigneeId);
+        if (ticket.resolvedById) userIds.add(ticket.resolvedById);
+      });
+      
+      // Get all users in one query
+      const users = await Promise.all(
+        Array.from(userIds).map(id => storage.getUser(id))
+      );
+      
+      const userMap = users.reduce((map, user) => {
+        if (user) {
+          // Remove password from user object
+          const { password, ...safeUser } = user;
+          map[user.id] = safeUser;
+        }
+        return map;
+      }, {} as Record<number, Omit<typeof user, "password">>);
+      
+      // Attach user info to tickets
+      const ticketsWithUsers = ticketList.map(ticket => ({
+        ...ticket,
+        creator: userMap[ticket.creatorId],
+        assignee: ticket.assigneeId ? userMap[ticket.assigneeId] : null,
+        resolvedBy: ticket.resolvedById ? userMap[ticket.resolvedById] : null
+      }));
+      
+      res.json(ticketsWithUsers);
     } catch (error) {
-      console.error("Error fetching users:", error);
-      res.status(500).json({ message: "Failed to fetch users" });
+      console.error("Error getting tickets:", error);
+      res.status(500).json({ message: "Error al obtener los tickets" });
     }
   });
-
-  app.patch("/api/users/:id", isAdmin, async (req, res) => {
+  
+  // Get ticket by ID or number
+  app.get("/api/tickets/:identifier", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
+    }
+    
     try {
-      const userId = parseInt(req.params.id);
-      if (isNaN(userId)) {
-        return res.status(400).json({ message: "Invalid user ID" });
+      const { identifier } = req.params;
+      let ticket;
+      
+      // Check if identifier is a number (id) or string (ticketNumber)
+      if (!isNaN(Number(identifier))) {
+        ticket = await storage.getTicket(Number(identifier));
+      } else {
+        ticket = await storage.getTicketByNumber(identifier);
       }
-
-      const updatedUser = await storage.updateUser(userId, req.body);
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
+      
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket no encontrado" });
       }
-
-      // Filter out password before sending
-      const { password, ...safeUser } = updatedUser;
-      res.json(safeUser);
+      
+      // Check if user has access to this ticket
+      if (req.user.role === "user" && ticket.creatorId !== req.user.id) {
+        return res.status(403).json({ message: "No tienes permiso para ver este ticket" });
+      }
+      
+      // Get creator and assignee info
+      const creator = await storage.getUser(ticket.creatorId);
+      const assignee = ticket.assigneeId ? await storage.getUser(ticket.assigneeId) : null;
+      const resolvedBy = ticket.resolvedById ? await storage.getUser(ticket.resolvedById) : null;
+      
+      // Get comments for this ticket
+      const comments = await storage.getTicketComments(ticket.id);
+      
+      // Get user info for comment authors
+      const commentUserIds = new Set<number>();
+      comments.forEach(comment => commentUserIds.add(comment.userId));
+      
+      const commentUsers = await Promise.all(
+        Array.from(commentUserIds).map(id => storage.getUser(id))
+      );
+      
+      const userMap = commentUsers.reduce((map, user) => {
+        if (user) {
+          // Remove password from user object
+          const { password, ...safeUser } = user;
+          map[user.id] = safeUser;
+        }
+        return map;
+      }, {} as Record<number, Omit<typeof user, "password">>);
+      
+      // Add user info to comments
+      const commentsWithUsers = comments.map(comment => ({
+        ...comment,
+        user: userMap[comment.userId]
+      }));
+      
+      // Get activities for this ticket
+      const activities = await storage.getTicketActivities(ticket.id);
+      
+      // Add user info to activities
+      const activitiesWithUsers = await Promise.all(
+        activities.map(async (activity) => {
+          const user = await storage.getUser(activity.userId);
+          if (user) {
+            const { password, ...safeUser } = user;
+            return { ...activity, user: safeUser };
+          }
+          return activity;
+        })
+      );
+      
+      // Remove sensitive information from users
+      const { password: _, ...safeCreator } = creator || {};
+      const safeAssignee = assignee ? { password: _, ...assignee } : null;
+      const safeResolvedBy = resolvedBy ? { password: _, ...resolvedBy } : null;
+      
+      res.json({
+        ticket,
+        creator: safeCreator,
+        assignee: safeAssignee,
+        resolvedBy: safeResolvedBy,
+        comments: commentsWithUsers,
+        activities: activitiesWithUsers
+      });
     } catch (error) {
-      console.error("Error updating user:", error);
-      res.status(500).json({ message: "Failed to update user" });
+      console.error("Error getting ticket:", error);
+      res.status(500).json({ message: "Error al obtener el ticket" });
     }
   });
-
-  // Tickets routes
-  app.post("/api/tickets", isAuthenticated, async (req, res) => {
+  
+  // Create a new ticket
+  app.post("/api/tickets", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
+    }
+    
     try {
+      // Validate ticket data
       const ticketData = insertTicketSchema.parse({
         ...req.body,
-        requesterId: req.user.id
+        creatorId: req.user.id
       });
-
+      
+      // Create the ticket
       const ticket = await storage.createTicket(ticketData);
-
-      // Create ticket activity
+      
+      // Record the activity
       await storage.createTicketActivity({
         ticketId: ticket.id,
         userId: req.user.id,
-        action: "create",
-        details: "Ticket created"
+        activityType: "created",
+        description: `Ticket creado: ${ticket.title}`
       });
-
-      // Create notification for admins and agents
-      const users = await storage.getUsers();
-      const agentsAndAdmins = users.filter(user => 
-        user.role === 'agent' || user.role === 'admin'
-      );
-
-      for (const user of agentsAndAdmins) {
-        await storage.createNotification({
-          userId: user.id,
-          message: `New ticket #${ticket.id} created: ${ticket.title}`,
-          relatedTicketId: ticket.id,
-          isRead: false
-        });
+      
+      // Try to create Teams chat for this ticket (if integration enabled)
+      try {
+        if (process.env.TEAMS_INTEGRATION_ENABLED === "true") {
+          const channelId = await teamsService.createTeamsChatForTicket(
+            ticket.ticketNumber,
+            ticket.title,
+            [req.user.teamsUserId].filter(Boolean) as string[]
+          );
+          
+          // Update ticket with the Teams channel ID
+          if (channelId) {
+            await db.update(tickets)
+              .set({ teamsChannelId: channelId })
+              .where(eq(tickets.id, ticket.id));
+          }
+        }
+      } catch (teamsError) {
+        console.error("Error creating Teams chat:", teamsError);
+        // Continue even if Teams integration fails
       }
-
+      
       res.status(201).json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
-      } else {
-        console.error("Error creating ticket:", error);
-        res.status(500).json({ message: "Failed to create ticket" });
+      if (error instanceof ZodError) {
+        const validationError = fromZodError(error);
+        return res.status(400).json({ message: validationError.message });
       }
+      console.error("Error creating ticket:", error);
+      res.status(500).json({ message: "Error al crear el ticket" });
     }
   });
-
-  app.get("/api/tickets", isAuthenticated, async (req, res) => {
-    try {
-      const tickets = await storage.getTickets(req.user.id, req.user.role);
-      res.json(tickets);
-    } catch (error) {
-      console.error("Error fetching tickets:", error);
-      res.status(500).json({ message: "Failed to fetch tickets" });
+  
+  // Update a ticket
+  app.patch("/api/tickets/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
     }
-  });
-
-  app.get("/api/tickets/:id", isAuthenticated, canAccessTicket, async (req, res) => {
-    res.json(req.ticket);
-  });
-
-  app.patch("/api/tickets/:id", isAuthenticated, canAccessTicket, async (req, res) => {
+    
     try {
-      const ticketId = parseInt(req.params.id);
+      const ticketId = Number(req.params.id);
+      const ticket = await storage.getTicket(ticketId);
+      
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket no encontrado" });
+      }
+      
+      // Check permissions
+      if (req.user.role === "user" && ticket.creatorId !== req.user.id) {
+        return res.status(403).json({ message: "No tienes permiso para actualizar este ticket" });
+      }
+      
+      // Handle special case: resolving a ticket
+      if (req.body.status === "resolved" && ticket.status !== "resolved") {
+        req.body.resolvedAt = new Date();
+        req.body.resolvedById = req.user.id;
+      }
+      
+      // Update the ticket
       const updatedTicket = await storage.updateTicket(ticketId, req.body);
-
+      
       if (!updatedTicket) {
-        return res.status(404).json({ message: "Ticket not found" });
+        return res.status(500).json({ message: "Error al actualizar el ticket" });
       }
-
-      // Create ticket activity
-      let action = "update";
-      let details = "Ticket updated";
-
-      if (req.body.status) {
-        action = "status_change";
-        details = `Status changed to ${req.body.status}`;
+      
+      // Record the activity
+      let activityType = "updated";
+      let description = "Ticket actualizado";
+      
+      if (req.body.status && req.body.status !== ticket.status) {
+        activityType = "status_changed";
+        description = `Estado cambiado de ${ticket.status} a ${req.body.status}`;
+      } else if (req.body.assigneeId && req.body.assigneeId !== ticket.assigneeId) {
+        activityType = "assigned";
+        const assignee = await storage.getUser(req.body.assigneeId);
+        description = `Asignado a ${assignee?.name || "Usuario"}`;
       }
-
+      
       await storage.createTicketActivity({
-        ticketId,
+        ticketId: ticket.id,
         userId: req.user.id,
-        action,
-        details
+        activityType,
+        description
       });
-
-      // Create notification for relevant users
-      if (updatedTicket.requesterId !== req.user.id) {
-        await storage.createNotification({
-          userId: updatedTicket.requesterId,
-          message: `Your ticket #${ticketId} has been updated`,
-          relatedTicketId: ticketId,
-          isRead: false
-        });
-      }
-
-      if (updatedTicket.agentId && updatedTicket.agentId !== req.user.id) {
-        await storage.createNotification({
-          userId: updatedTicket.agentId,
-          message: `Ticket #${ticketId} you're assigned to has been updated`,
-          relatedTicketId: ticketId,
-          isRead: false
-        });
-      }
-
+      
       res.json(updatedTicket);
     } catch (error) {
       console.error("Error updating ticket:", error);
-      res.status(500).json({ message: "Failed to update ticket" });
+      res.status(500).json({ message: "Error al actualizar el ticket" });
     }
   });
-
-  app.post("/api/tickets/:id/assign", isAgentOrAdmin, canAccessTicket, async (req, res) => {
-    try {
-      const ticketId = parseInt(req.params.id);
-      const { agentId } = req.body;
-
-      if (!agentId) {
-        return res.status(400).json({ message: "Agent ID is required" });
-      }
-
-      const agent = await storage.getUser(agentId);
-      if (!agent || (agent.role !== 'agent' && agent.role !== 'admin')) {
-        return res.status(400).json({ message: "Invalid agent ID" });
-      }
-
-      const updatedTicket = await storage.assignTicket(ticketId, agentId);
-      if (!updatedTicket) {
-        return res.status(404).json({ message: "Ticket not found" });
-      }
-
-      // Create ticket activity
-      await storage.createTicketActivity({
-        ticketId,
-        userId: req.user.id,
-        action: "assign",
-        details: `Assigned to agent (ID: ${agentId})`
-      });
-
-      // Create notification for the agent
-      await storage.createNotification({
-        userId: agentId,
-        message: `You have been assigned to ticket #${ticketId}`,
-        relatedTicketId: ticketId,
-        isRead: false
-      });
-
-      // Create notification for the requester
-      await storage.createNotification({
-        userId: updatedTicket.requesterId,
-        message: `Your ticket #${ticketId} has been assigned to an agent`,
-        relatedTicketId: ticketId,
-        isRead: false
-      });
-
-      res.json(updatedTicket);
-    } catch (error) {
-      console.error("Error assigning ticket:", error);
-      res.status(500).json({ message: "Failed to assign ticket" });
+  
+  // Add a comment to a ticket
+  app.post("/api/tickets/:id/comments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
     }
-  });
-
-  // Ticket comments
-  app.post("/api/tickets/:id/comments", isAuthenticated, canAccessTicket, async (req, res) => {
+    
     try {
-      const ticketId = parseInt(req.params.id);
+      const ticketId = Number(req.params.id);
+      const ticket = await storage.getTicket(ticketId);
+      
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket no encontrado" });
+      }
+      
+      // Check permissions for internal comments
+      if (req.body.isInternal && req.user.role === "user") {
+        return res.status(403).json({ message: "Los usuarios no pueden crear comentarios internos" });
+      }
+      
+      // Validate comment data
       const commentData = insertTicketCommentSchema.parse({
         ...req.body,
         ticketId,
         userId: req.user.id
       });
-
+      
+      // Create the comment
       const comment = await storage.createTicketComment(commentData);
-
-      // Create ticket activity
+      
+      // Record the activity
       await storage.createTicketActivity({
         ticketId,
         userId: req.user.id,
-        action: "comment",
-        details: "Added a comment"
+        activityType: "comment_added",
+        description: `Comentario añadido por ${req.user.name}`
       });
-
-      // Create notification for other users involved with the ticket
-      const ticket = await storage.getTicket(ticketId);
-      if (ticket) {
-        if (ticket.requesterId !== req.user.id) {
-          await storage.createNotification({
-            userId: ticket.requesterId,
-            message: `New comment on your ticket #${ticketId}`,
-            relatedTicketId: ticketId,
-            isRead: false
-          });
+      
+      // Try to send message to Teams chat (if integration enabled)
+      try {
+        if (process.env.TEAMS_INTEGRATION_ENABLED === "true" && ticket.teamsChannelId) {
+          await teamsService.sendMessageToTeamsChat(
+            ticket.teamsChannelId,
+            commentData.content,
+            req.user.name
+          );
         }
-
-        if (ticket.agentId && ticket.agentId !== req.user.id) {
-          await storage.createNotification({
-            userId: ticket.agentId,
-            message: `New comment on ticket #${ticketId}`,
-            relatedTicketId: ticketId,
-            isRead: false
-          });
-        }
+      } catch (teamsError) {
+        console.error("Error sending message to Teams chat:", teamsError);
+        // Continue even if Teams integration fails
       }
-
-      res.status(201).json(comment);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid comment data", errors: error.errors });
-      } else {
-        console.error("Error creating comment:", error);
-        res.status(500).json({ message: "Failed to create comment" });
-      }
-    }
-  });
-
-  app.get("/api/tickets/:id/comments", isAuthenticated, canAccessTicket, async (req, res) => {
-    try {
-      const ticketId = parseInt(req.params.id);
-      const comments = await storage.getTicketComments(ticketId);
-      res.json(comments);
-    } catch (error) {
-      console.error("Error fetching comments:", error);
-      res.status(500).json({ message: "Failed to fetch comments" });
-    }
-  });
-
-  // Ticket activities
-  app.get("/api/activities", isAdmin, async (req, res) => {
-    try {
-      const activities = await storage.getTicketActivities();
-      res.json(activities);
-    } catch (error) {
-      console.error("Error fetching activities:", error);
-      res.status(500).json({ message: "Failed to fetch activities" });
-    }
-  });
-
-  app.get("/api/tickets/:id/activities", isAuthenticated, canAccessTicket, async (req, res) => {
-    try {
-      const ticketId = parseInt(req.params.id);
-      const activities = await storage.getTicketActivities(ticketId);
-      res.json(activities);
-    } catch (error) {
-      console.error("Error fetching ticket activities:", error);
-      res.status(500).json({ message: "Failed to fetch ticket activities" });
-    }
-  });
-
-  // Notifications
-  app.get("/api/notifications", isAuthenticated, async (req, res) => {
-    try {
-      const notifications = await storage.getUserNotifications(req.user.id);
-      res.json(notifications);
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-      res.status(500).json({ message: "Failed to fetch notifications" });
-    }
-  });
-
-  app.patch("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
-    try {
-      const notificationId = parseInt(req.params.id);
-      if (isNaN(notificationId)) {
-        return res.status(400).json({ message: "Invalid notification ID" });
-      }
-
-      const updatedNotification = await storage.markNotificationAsRead(notificationId);
-      if (!updatedNotification) {
-        return res.status(404).json({ message: "Notification not found" });
-      }
-
-      res.json(updatedNotification);
-    } catch (error) {
-      console.error("Error marking notification as read:", error);
-      res.status(500).json({ message: "Failed to mark notification as read" });
-    }
-  });
-
-  // Stats for admin dashboard
-  app.get("/api/stats", isAdmin, async (req, res) => {
-    try {
-      const tickets = await storage.getTickets();
       
-      // Calculate basic stats
-      const activeTickets = tickets.filter(t => t.status !== 'closed' && t.status !== 'resolved').length;
-      const resolvedToday = tickets.filter(t => {
-        const today = new Date();
-        const ticketDate = new Date(t.lastUpdated);
-        return t.status === 'resolved' && 
-               ticketDate.getDate() === today.getDate() &&
-               ticketDate.getMonth() === today.getMonth() &&
-               ticketDate.getFullYear() === today.getFullYear();
-      }).length;
+      // Get the user info for the response
+      const { password, ...safeUser } = req.user;
       
-      const urgentTickets = tickets.filter(t => 
-        t.priority === 'critical' && 
-        (t.status !== 'closed' && t.status !== 'resolved')
-      ).length;
+      res.status(201).json({
+        ...comment,
+        user: safeUser
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const validationError = fromZodError(error);
+        return res.status(400).json({ message: validationError.message });
+      }
+      console.error("Error adding comment:", error);
+      res.status(500).json({ message: "Error al añadir comentario" });
+    }
+  });
+  
+  // Get ticket statistics
+  app.get("/api/stats/tickets", checkRole(["admin", "agent"]), async (req: Request, res: Response) => {
+    try {
+      const statusCounts = await storage.getTicketsCountByStatus();
       
-      // For a real application, you would calculate the average resolution time
-      // from the ticket activities, but for this example we'll use a placeholder
-      const avgResolutionTime = "3.5h";
+      // Get tickets resolved today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const resolvedToday = await db.select({ count: sql`count(*)::int` })
+        .from(tickets)
+        .where(
+          and(
+            eq(tickets.status, "resolved"),
+            sql`${tickets.resolvedAt} >= ${today}`
+          )
+        );
       
       res.json({
-        activeTickets,
-        resolvedToday,
-        urgentTickets,
-        avgResolutionTime
+        byStatus: statusCounts,
+        resolvedToday: resolvedToday[0]?.count || 0
       });
     } catch (error) {
-      console.error("Error fetching stats:", error);
-      res.status(500).json({ message: "Failed to fetch statistics" });
+      console.error("Error getting ticket statistics:", error);
+      res.status(500).json({ message: "Error al obtener estadísticas" });
     }
   });
-
-  const httpServer = createServer(app);
-
+  
+  // Get recent activities
+  app.get("/api/activities", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
+    }
+    
+    try {
+      const limit = Number(req.query.limit) || 10;
+      const activities = await storage.getRecentActivities(limit);
+      
+      // Add user and ticket info to activities
+      const enhancedActivities = await Promise.all(
+        activities.map(async (activity) => {
+          const user = await storage.getUser(activity.userId);
+          const ticket = await storage.getTicket(activity.ticketId);
+          
+          if (user) {
+            const { password, ...safeUser } = user;
+            return { 
+              ...activity, 
+              user: safeUser,
+              ticket: ticket ? {
+                id: ticket.id,
+                ticketNumber: ticket.ticketNumber,
+                title: ticket.title,
+                status: ticket.status
+              } : null
+            };
+          }
+          return activity;
+        })
+      );
+      
+      res.json(enhancedActivities);
+    } catch (error) {
+      console.error("Error getting activities:", error);
+      res.status(500).json({ message: "Error al obtener actividades" });
+    }
+  });
+  
+  // User management endpoints (admin only)
+  
+  // Get all users
+  app.get("/api/users", checkRole(["admin"]), async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getAllUsers();
+      
+      // Remove passwords from user objects
+      const safeUsers = users.map(user => {
+        const { password, ...safeUser } = user;
+        return safeUser;
+      });
+      
+      res.json(safeUsers);
+    } catch (error) {
+      console.error("Error getting users:", error);
+      res.status(500).json({ message: "Error al obtener usuarios" });
+    }
+  });
+  
+  // Get users by role
+  app.get("/api/users/role/:role", checkRole(["admin", "agent"]), async (req: Request, res: Response) => {
+    try {
+      const role = req.params.role;
+      const users = await storage.getUsersByRole(role);
+      
+      // Remove passwords from user objects
+      const safeUsers = users.map(user => {
+        const { password, ...safeUser } = user;
+        return safeUser;
+      });
+      
+      res.json(safeUsers);
+    } catch (error) {
+      console.error("Error getting users by role:", error);
+      res.status(500).json({ message: "Error al obtener usuarios por rol" });
+    }
+  });
+  
+  // Update user (admin only)
+  app.patch("/api/users/:id", checkRole(["admin"]), async (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.params.id);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "Usuario no encontrado" });
+      }
+      
+      // If password is being updated, hash it
+      if (req.body.password) {
+        req.body.password = await hashPassword(req.body.password);
+      }
+      
+      // Update the user
+      const updatedUser = await storage.updateUser(userId, req.body);
+      
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Error al actualizar el usuario" });
+      }
+      
+      // Remove password from response
+      const { password, ...safeUser } = updatedUser;
+      
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: "Error al actualizar el usuario" });
+    }
+  });
+  
   return httpServer;
+}
+
+// Helper function for password hashing (duplicated from auth.ts for use in user updates)
+async function hashPassword(password: string) {
+  const scryptAsync = promisify(scrypt);
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
 }

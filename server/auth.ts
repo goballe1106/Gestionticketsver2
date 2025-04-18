@@ -5,9 +5,9 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { db } from "./db";
-import { userCreateSchema, userRegisterSchema, users, User as SelectUser } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { User as SelectUser, insertUserSchema } from "@shared/schema";
+import { ZodError } from "zod";
+import { fromZodError } from "zod-validation-error";
 
 declare global {
   namespace Express {
@@ -31,16 +31,15 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  const sessionSecret = process.env.SESSION_SECRET || 'support-ticket-system-secret';
-  
   const sessionSettings: session.SessionOptions = {
-    secret: sessionSecret,
+    secret: process.env.SESSION_SECRET || 'support-ticket-system-secret',
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 1 day
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      secure: process.env.NODE_ENV === 'production', 
+      sameSite: 'lax',
     }
   };
 
@@ -51,71 +50,77 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      const user = await storage.getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      } else {
-        return done(null, user);
+      try {
+        const user = await storage.getUserByUsername(username);
+        if (!user || !(await comparePasswords(password, user.password))) {
+          return done(null, false, { message: "Credenciales incorrectas" });
+        } else {
+          return done(null, user);
+        }
+      } catch (error) {
+        return done(error);
       }
     }),
   );
 
   passport.serializeUser((user, done) => done(null, user.id));
+  
   passport.deserializeUser(async (id: number, done) => {
-    const user = await storage.getUser(id);
-    done(null, user);
+    try {
+      const user = await storage.getUser(id);
+      done(null, user);
+    } catch (error) {
+      done(error);
+    }
   });
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      // Validate registration data
-      const validationResult = userRegisterSchema.safeParse(req.body);
-      if (!validationResult.success) {
-        return res.status(400).json({ 
-          message: "Validation failed", 
-          errors: validationResult.error.errors 
-        });
-      }
-
-      const existingUser = await storage.getUserByUsername(req.body.username);
+      // Validate input with Zod schema
+      const userData = insertUserSchema.parse(req.body);
+      
+      // Check if username already exists
+      const existingUser = await storage.getUserByUsername(userData.username);
       if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
+        return res.status(400).json({ message: "El nombre de usuario ya está en uso" });
       }
-
-      const existingEmail = await db.select().from(users).where(eq(users.email, req.body.email));
-      if (existingEmail.length > 0) {
-        return res.status(400).json({ message: "Email already in use" });
-      }
-
-      // Create user without confirmPassword field
-      const userData = userCreateSchema.parse(req.body);
+      
+      // Hash password and create user
+      const hashedPassword = await hashPassword(userData.password);
+      const { confirmPassword, ...userWithoutConfirm } = userData;
       
       const user = await storage.createUser({
-        ...userData,
-        password: await hashPassword(userData.password),
+        ...userWithoutConfirm,
+        password: hashedPassword,
       });
 
+      // Convert to safe user (without password)
+      const { password, ...safeUser } = user;
+      
+      // Log in the user
       req.login(user, (err) => {
         if (err) return next(err);
-        // Don't send the password back to the client
-        const { password, ...userWithoutPassword } = user;
-        res.status(201).json(userWithoutPassword);
+        res.status(201).json(safeUser);
       });
     } catch (error) {
+      if (error instanceof ZodError) {
+        const validationError = fromZodError(error);
+        return res.status(400).json({ message: validationError.message });
+      }
       next(error);
     }
   });
 
   app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err: any, user: SelectUser | false, info: any) => {
+    passport.authenticate("local", (err, user, info) => {
       if (err) return next(err);
-      if (!user) return res.status(401).json({ message: "Invalid credentials" });
+      if (!user) return res.status(401).json({ message: info?.message || "Credenciales incorrectas" });
       
       req.login(user, (err) => {
         if (err) return next(err);
-        // Don't send the password back to the client
-        const { password, ...userWithoutPassword } = user;
-        res.status(200).json(userWithoutPassword);
+        // Return user without password
+        const { password, ...safeUser } = user;
+        res.status(200).json(safeUser);
       });
     })(req, res, next);
   });
@@ -128,9 +133,24 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    // Don't send the password back to the client
-    const { password, ...userWithoutPassword } = req.user;
-    res.json(userWithoutPassword);
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "No autenticado" });
+    // Return user without password
+    const { password, ...safeUser } = req.user;
+    res.json(safeUser);
   });
+}
+
+// Middleware to check roles
+export function checkRole(roles: string[]) {
+  return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "No autenticado" });
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ message: "No autorizado para acceder a este recurso" });
+    }
+    
+    next();
+  };
 }
