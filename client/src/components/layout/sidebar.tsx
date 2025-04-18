@@ -60,46 +60,34 @@ export function Sidebar({ isMobileSidebarOpen, closeMobileSidebar }: SidebarProp
 
       {/* Navigation Menu */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        <Link href="/" onClick={closeMobileSidebar}>
-          <a
-            className={cn(
+        <Link href="/" onClick={closeMobileSidebar} className={cn(
               "flex items-center px-2 py-2 text-sm font-medium rounded-md",
               isActive("/")
                 ? "text-white bg-[#0078d4]"
                 : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-            )}
-          >
-            <Home className="mr-3 h-5 w-5" />
-            Dashboard
-          </a>
+            )}>
+          <Home className="mr-3 h-5 w-5" />
+          Dashboard
         </Link>
 
-        <Link href="/tickets" onClick={closeMobileSidebar}>
-          <a
-            className={cn(
+        <Link href="/tickets" onClick={closeMobileSidebar} className={cn(
               "flex items-center px-2 py-2 text-sm font-medium rounded-md",
               isActive("/tickets")
                 ? "text-white bg-[#0078d4]"
                 : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-            )}
-          >
-            <Tag className="mr-3 h-5 w-5" />
-            Mis Tickets
-          </a>
+            )}>
+          <Tag className="mr-3 h-5 w-5" />
+          Mis Tickets
         </Link>
 
-        <Link href="/tickets/create" onClick={closeMobileSidebar}>
-          <a
-            className={cn(
+        <Link href="/tickets/create" onClick={closeMobileSidebar} className={cn(
               "flex items-center px-2 py-2 text-sm font-medium rounded-md",
               isActive("/tickets/create")
                 ? "text-white bg-[#0078d4]"
                 : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-            )}
-          >
-            <PlusCircle className="mr-3 h-5 w-5" />
-            Crear Ticket
-          </a>
+            )}>
+          <PlusCircle className="mr-3 h-5 w-5" />
+          Crear Ticket
         </Link>
 
         {(user?.role === "admin" || user?.role === "agent") && (
@@ -109,49 +97,37 @@ export function Sidebar({ isMobileSidebarOpen, closeMobileSidebar }: SidebarProp
             </h3>
 
             {user.role === "admin" && (
-              <Link href="/users" onClick={closeMobileSidebar}>
-                <a
-                  className={cn(
+              <Link href="/users" onClick={closeMobileSidebar} className={cn(
                     "flex items-center px-2 py-2 mt-1 text-sm font-medium rounded-md",
                     isActive("/users")
                       ? "text-white bg-[#0078d4]"
                       : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-                  )}
-                >
-                  <Users className="mr-3 h-5 w-5" />
-                  Gestión de Usuarios
-                </a>
+                  )}>
+                <Users className="mr-3 h-5 w-5" />
+                Gestión de Usuarios
               </Link>
             )}
 
             {user.role === "admin" && (
-              <Link href="/settings" onClick={closeMobileSidebar}>
-                <a
-                  className={cn(
+              <Link href="/settings" onClick={closeMobileSidebar} className={cn(
                     "flex items-center px-2 py-2 text-sm font-medium rounded-md",
                     isActive("/settings")
                       ? "text-white bg-[#0078d4]"
                       : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-                  )}
-                >
-                  <Settings className="mr-3 h-5 w-5" />
-                  Configuración
-                </a>
+                  )}>
+                <Settings className="mr-3 h-5 w-5" />
+                Configuración
               </Link>
             )}
 
-            <Link href="/reports" onClick={closeMobileSidebar}>
-              <a
-                className={cn(
+            <Link href="/reports" onClick={closeMobileSidebar} className={cn(
                   "flex items-center px-2 py-2 text-sm font-medium rounded-md",
                   isActive("/reports")
                     ? "text-white bg-[#0078d4]"
                     : "text-ms-gray-700 hover:bg-ms-gray-100 hover:text-[#0078d4]"
-                )}
-              >
-                <BarChart4 className="mr-3 h-5 w-5" />
-                Reportes
-              </a>
+                )}>
+              <BarChart4 className="mr-3 h-5 w-5" />
+              Reportes
             </Link>
           </div>
         )}
