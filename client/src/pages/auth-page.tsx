@@ -294,12 +294,12 @@ function RegisterForm() {
           />
           <FormField
             control={form.control}
-            name="department"
+            name="role"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Departamento</FormLabel>
+                <FormLabel>Rol</FormLabel>
                 <FormControl>
-                  <Input placeholder="Tu departamento" {...field} />
+                  <Input placeholder="Rol (user, agent, admin)" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
