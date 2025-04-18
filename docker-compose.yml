@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # Servicio para la aplicación Node.js
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticket-system-app
+    restart: always
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/ticket_system
+      - SESSION_SECRET=ticket-system-secret-change-in-production
+    networks:
+      - ticket-network
+
+  # Servicio para la base de datos PostgreSQL
+  db:
+    image: postgres:16-alpine
+    container_name: ticket-system-db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ticket_system
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - ticket-network
+
+networks:
+  ticket-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
