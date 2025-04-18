@@ -229,7 +229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const channelId = await teamsService.createTeamsChatForTicket(
             ticket.ticketNumber,
             ticket.title,
-            [req.user.teamsUserId].filter(Boolean) as string[]
+            [req.user.msTeamsId].filter(Boolean) as string[]
           );
           
           // Update ticket with the Teams channel ID
