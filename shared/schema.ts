@@ -19,6 +19,45 @@ export const ticketPriorityEnum = pgEnum('ticket_priority', [
   'urgent'
 ]);
 
+// Enum para los tipos de tickets
+export const ticketTypeEnum = pgEnum('ticket_type', [
+  // Alta Prioridad (Urgente)
+  'internet_outage',           // 1. Fallo total en la conexión a internet que impide trabajar
+  'os_boot_failure',           // 2. Sistema operativo no arranca en equipos esenciales
+  'malware_detected',          // 3. Virus o malware detectado en equipos de trabajo
+  'email_access_lost',         // 4. Pérdida de acceso a correo electrónico en todos los dispositivos de un usuario
+  'critical_hardware_failure', // 5. Fallo de hardware crítico (por ejemplo, disco duro dañado en un equipo clave)
+  'essential_platform_error',  // 6. Error en acceso a plataforma esencial (ERP, CRM, etc.)
+  'account_lockout',           // 7. Bloqueo total de cuenta de usuario
+
+  // Media Prioridad (Importante, pero no crítico)
+  'intermittent_internet',     // 1. Conexión a internet intermitente en algunos usuarios
+  'printer_issues',            // 2. Problemas menores con impresoras
+  'software_installation',     // 3. Solicitud de instalación de software o herramientas
+  'non_critical_app_error',    // 4. Error en aplicación no crítica
+  'cloud_sync_issues',         // 5. Problemas con la sincronización de archivos en plataformas en la nube
+  'password_reset',            // 6. Restablecimiento de contraseñas para herramientas o servicios no críticos
+  'tool_config_issue',         // 7. Fallo en la configuración de una herramienta que afecta la productividad
+
+  // Baja Prioridad (Menos urgente)
+  'mobile_email_setup',        // 1. Solicitudes de asistencia para configurar correo electrónico en dispositivos móviles
+  'software_usage_help',       // 2. Consultas sobre cómo realizar tareas básicas en un software
+  'file_access_issue',         // 3. Problemas menores de acceso a archivos o carpetas en servidores compartidos
+  'peripheral_setup',          // 4. Pequeñas dificultades con la configuración de impresoras o escáneres
+  'remote_access_setup',       // 5. Asistencia con la configuración de acceso remoto (VPN o aplicaciones similares)
+  'non_critical_software',     // 6. Petición de instalación de programas no críticos para equipos de trabajo
+  'minor_display_errors',      // 7. Errores menores de visualización o gráficos en herramientas de oficina
+
+  // Muy Baja Prioridad (No urgente)
+  'advanced_feature_help',     // 1. Preguntas sobre funciones avanzadas en software
+  'ui_cosmetic_requests',      // 2. Solicitudes de cambios cosméticos en la apariencia de la interfaz de usuario
+  'future_updates_info',       // 3. Consultas sobre actualizaciones futuras de programas o sistemas operativos
+  'disk_space_management',     // 4. Peticiones para liberar espacio en discos duros personales
+  'cleanup_request',           // 5. Solicitudes para eliminar archivos o aplicaciones no utilizadas
+  'documentation_errors',      // 6. Errores menores de ortografía o detalles gráficos en documentación interna
+  'support_process_help'       // 7. Consultas sobre procedimientos de soporte o cómo abrir tickets de ayuda
+]);
+
 // User roles
 export const userRoleEnum = pgEnum('user_role', [
   'user', 
@@ -52,6 +91,7 @@ export const tickets = pgTable('tickets', {
   ticketNumber: text('ticket_number').notNull().unique(),
   title: text('title').notNull(),
   description: text('description').notNull(),
+  type: ticketTypeEnum('type'),
   status: ticketStatusEnum('status').notNull().default('open'),
   priority: ticketPriorityEnum('priority').notNull().default('medium'),
   creatorId: integer('creator_id').notNull().references(() => users.id),
@@ -62,6 +102,7 @@ export const tickets = pgTable('tickets', {
   resolvedAt: timestamp('resolved_at'),
   resolvedById: integer('resolved_by_id').references(() => users.id),
   teamsChannelId: text('teams_channel_id'),
+  slaHours: integer('sla_hours'), // Tiempo en horas para el SLA
 });
 
 // Define ticket relations

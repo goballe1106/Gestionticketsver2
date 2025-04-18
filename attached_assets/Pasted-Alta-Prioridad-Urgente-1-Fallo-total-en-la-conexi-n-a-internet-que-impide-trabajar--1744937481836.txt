@@ -1,0 +1,39 @@
+Alta Prioridad (Urgente)			
+			
+1. Fallo total en la conexión a internet que impide trabajar.			
+2. Sistema operativo no arranca en equipos esenciales.			
+3. Virus o malware detectado en equipos de trabajo.			
+4. Pérdida de acceso a correo electrónico en todos los dispositivos de un usuario.			
+5. Fallo de hardware crítico (por ejemplo, disco duro dañado en un equipo clave).			
+6. Error en acceso a plataforma esencial (ERP, CRM, etc.).			
+7. Bloqueo total de cuenta de usuario (por ejemplo, no puede acceder a ninguna aplicación esencial).			
+			
+Media Prioridad (Importante, pero no crítico)			
+			
+1. Conexión a internet intermitente en algunos usuarios, pero no en todos.			
+2. Problemas menores con impresoras (se atora el papel o no imprime correctamente).			
+3. Solicitud de instalación de software o herramientas para nuevos usuarios.			
+4. Error en aplicación no crítica, que no afecta a todos los usuarios pero sí a algunos.			
+5. Problemas con la sincronización de archivos en plataformas en la nube (no impide el trabajo, pero ralentiza).			
+6. Restablecimiento de contraseñas para herramientas o servicios no críticos.			
+7. Fallo en la configuración de una herramienta que afecta la productividad de un equipo, pero no es esencial.			
+			
+Baja Prioridad (Menos urgente)			
+			
+1. Solicitudes de asistencia para configurar correo electrónico en dispositivos móviles.			
+2. Consultas sobre cómo realizar tareas básicas en un software (por ejemplo, cómo enviar un archivo en una aplicación).			
+3. Problemas menores de acceso a archivos o carpetas en servidores compartidos.			
+4. Pequeñas dificultades con la configuración de impresoras o escáneres.			
+5. Asistencia con la configuración de acceso remoto (VPN o aplicaciones similares).			
+6. Petición de instalación de programas no críticos para equipos de trabajo.			
+7. Errores menores de visualización o gráficos en herramientas de oficina (como una hoja de cálculo).			
+			
+Muy Baja Prioridad (No urgente)			
+			
+1. Preguntas sobre funciones avanzadas en software que no afectan la operativa diaria.			
+2. Solicitudes de cambios cosméticos en la apariencia de la interfaz de usuario (colores, fondos, etc.).			
+3. Consultas sobre actualizaciones futuras de programas o sistemas operativos.			
+4. Peticiones para liberar espacio en discos duros personales, pero que no afecta el rendimiento inmediato.			
+5. Solicitudes para eliminar archivos o aplicaciones no utilizadas en el equipo.			
+6. Errores menores de ortografía o detalles gráficos en documentación interna.			
+7. Consultas sobre procedimientos de soporte o cómo abrir tickets de ayuda.	
