@@ -232,10 +232,11 @@ function RegisterForm() {
       username: "",
       password: "",
       confirmPassword: "",
-      name: "",
+      fullName: "",
       email: "",
-      department: "",
       role: "user", // Default role is user
+      avatarUrl: "",
+      msTeamsId: "",
     },
   });
 
@@ -249,7 +250,7 @@ function RegisterForm() {
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
         <FormField
           control={form.control}
-          name="name"
+          name="fullName"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Nombre completo</FormLabel>

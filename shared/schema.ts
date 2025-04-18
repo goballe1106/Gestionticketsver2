@@ -31,11 +31,12 @@ export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   username: text('username').notNull().unique(),
   password: text('password').notNull(),
-  name: text('name').notNull(),
+  fullName: text('full_name').notNull(),
   email: text('email').notNull().unique(),
-  department: text('department'),
   role: userRoleEnum('role').notNull().default('user'),
-  teamsUserId: text('teams_user_id'),
+  avatarUrl: text('avatar_url'),
+  msTeamsId: text('ms_teams_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 // Define user relations
